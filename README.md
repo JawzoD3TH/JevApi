@@ -40,3 +40,18 @@ dotnet build JevApi.slnx
 ```
 
 Set your TypeSafe API key in `MCP/appsettings.json` (`TypeSafe:ApiKey`) or via the `TYPESAFE__ApiKey` environment variable, then point your MCP client at the built `JevMcp` executable.
+
+## Testing
+
+Two harnesses verify the server end-to-end (both find `JevMcp.exe` automatically; override with arg 1 or `JEVMCP_EXE`):
+
+- **`TestHarness`** — C# integration test built on MCPSharp's own `MCPClient`, so it exercises exactly what a real MCP client does. Keyless by default (`tools/list`, `health`, `validate_questions`, `examples`); `--live` spends one evaluation (noul + choice + score) against the Jev API.
+  ```bash
+  dotnet run --project TestHarness -- --live
+  ```
+- **`test/mcp_stdio_smoke.py`** — framework-free raw MCP-over-stdio client. It speaks newline-delimited JSON-RPC directly, so it runs anywhere Python does and works as a keyless transport-level sanity check (and as the reference client for debugging transport issues).
+  ```bash
+  python test/mcp_stdio_smoke.py --live
+  ```
+
+Note: the `MCP` project must not set `PublishAot=true` — that flag disables reflection-based JSON serialization at runtime (even in plain `dotnet build` output), which silently breaks MCPSharp's stdio JSON-RPC layer. `InvariantGlobalization` is fine.

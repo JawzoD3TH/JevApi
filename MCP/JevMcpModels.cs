@@ -31,7 +31,7 @@ public sealed class McpQuestion
     /// combine the results yourself. Example: "Which category best fits this document?"
     /// </summary>
     [JsonPropertyName("question")]
-    public required string Question { get; set; }
+    public string? Question { get; set; }
 
     /// <summary>
     /// (choice only) The candidate options the model may pick, 1-255 entries.

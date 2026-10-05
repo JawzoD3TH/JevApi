@@ -1,4 +1,4 @@
-﻿using JevMcp;
+using JevMcp;
 using MCPSharp;
 
 // stdio MCP server. stdout carries the protocol stream; diagnostics go to stderr.

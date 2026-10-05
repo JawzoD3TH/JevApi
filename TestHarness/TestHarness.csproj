@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>JevHarness</AssemblyName>
+    <RootNamespace>JevHarness</RootNamespace>
+    <Description>Integration harness for the JevMcp stdio server. Keyless checks by default; pass --live to spend evaluations against the Jev API.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MCPSharp" Version="1.0.11" />
+    <PackageReference Include="MessagePack" Version="3.1.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel.Core" Version="2.3.13" />
+  </ItemGroup>
+
+</Project>

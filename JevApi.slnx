@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="MCP/MCP.csproj" />
+  <Project Path="TestHarness/TestHarness.csproj" />
   <Project Path="TypeSafe.Client\TypeSafe.Client.csproj" />
 </Solution>

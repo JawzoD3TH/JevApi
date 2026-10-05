@@ -18,6 +18,7 @@ public abstract record Answer
 public sealed record NoulAnswer : Answer
 {
     [JsonPropertyName("type")]
+    [JsonIgnore]
     public override string Type => "noul";
 
     /// <summary>The yes/no answer on a scale from 0 (no) to 1 (yes).</summary>
@@ -32,6 +33,7 @@ public sealed record NoulAnswer : Answer
 public sealed record ChoiceAnswer : Answer
 {
     [JsonPropertyName("type")]
+    [JsonIgnore]
     public override string Type => "choice";
 
     /// <summary>The highest-probability option.</summary>
@@ -51,6 +53,7 @@ public sealed record ChoiceAnswer : Answer
 public sealed record ScoreAnswer : Answer
 {
     [JsonPropertyName("type")]
+    [JsonIgnore]
     public override string Type => "score";
 
     /// <summary>The probability-weighted answer across the levels; can land between levels.</summary>
