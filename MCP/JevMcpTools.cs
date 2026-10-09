@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using MCPSharp;
 using TypeSafe.Client;
 
@@ -37,22 +38,24 @@ public sealed class JevMcpTools
         [McpParameter(true, "The content to judge: plain text or JSON. Truncated at 6000 chars (warning returned when that happens).")]
         string state,
         [McpParameter(true,
-            "1-20 typed questions, each: { id (your unique key, echoed back), type (choice|score|noul), question (one specific " +
+            "1-20 typed questions as a JSON ARRAY, each: { id (your unique key, echoed back), type (choice|score|noul), question (one specific " +
             "judgment) } plus per-type fields: choice -> options: string[] (1-255); score -> levels: string[] (2-10, low to high); " +
             "noul -> statement: string. Example noul: { id:\"claim_ok\", type:\"noul\", statement:\"The source explicitly states X\" }. " +
             "Example score: { id:\"relevance\", type:\"score\", question:\"How relevant is this to topic T?\", levels:[\"irrelevant\",\"somewhat\",\"highly relevant\"] }. " +
             "Example choice: { id:\"category\", type:\"choice\", question:\"Which category fits best?\", options:[\"a\",\"b\",\"c\"] }.")]
-        List<McpQuestion> questions)
+        JsonElement questions)
     {
+        Diag("evaluate", "questions", questions);
         try
         {
             if (string.IsNullOrWhiteSpace(state))
                 throw JevEvaluator.BadArgument("malformed_argument", "'state' is required and must be non-empty.");
 
-            _evaluator.ValidateQuestionList(questions);
+            var questionList = ParseList<McpQuestion>(questions, "questions");
+            _evaluator.ValidateQuestionList(questionList);
 
             var (text, warning) = JevEvaluator.Truncate(state, _evaluator.Options.MaxStateCharacters);
-            var (results, raw, latencyMs) = await _evaluator.EvaluateAsync(text, questions, CancellationToken.None);
+            var (results, raw, latencyMs) = await _evaluator.EvaluateAsync(text, questionList, CancellationToken.None);
 
             var response = new EvaluateResponse
             {
@@ -83,40 +86,45 @@ public sealed class JevMcpTools
         "multiple calls of <= 50 items. Per-item failures are returned inline (is_error + error) so one bad item never sinks the batch.")]
     public async Task<string> EvaluateBatchAsync(
         [McpParameter(true,
-            "Up to 50 items: { id (your key; results are keyed by it), content (text to judge; truncated at 4000 chars) }. " +
+            "Up to 50 items as a JSON ARRAY: { id (your key; results are keyed by it), content (text to judge; truncated at 4000 chars) }. " +
             "Example: [ { id:\"src-1\", content:\"...\" }, { id:\"src-2\", content:\"...\" } ].")]
-        List<BatchItem> items,
+        JsonElement items,
         [McpParameter(true,
             "1-20 typed questions applied identically to every item; same schema as evaluate. For relevance triage use one score " +
             "question, e.g. { id:\"relevance\", type:\"score\", question:\"How relevant is this source to topic X?\", " +
             "levels:[\"irrelevant\",\"marginally relevant\",\"somewhat relevant\",\"highly relevant\"] }.")]
-        List<McpQuestion> questions)
+        JsonElement questions)
     {
+        Diag("evaluate_batch", "items", items);
+        Diag("evaluate_batch", "questions", questions);
         try
         {
-            if (items is null || items.Count == 0)
+            var itemList = ParseList<BatchItem>(items, "items");
+            var questionList = ParseList<McpQuestion>(questions, "questions");
+
+            if (itemList is null || itemList.Count == 0)
                 throw JevEvaluator.BadArgument("malformed_argument", "'items' must contain at least one item.");
-            if (items.Count > _evaluator.Options.MaxBatchItems)
+            if (itemList.Count > _evaluator.Options.MaxBatchItems)
                 throw JevEvaluator.BadArgument("state_too_large",
-                    $"too many items ({items.Count}); the limit is {_evaluator.Options.MaxBatchItems} per call. Split the set and make multiple calls.");
-            if (items.Any(i => i is null || string.IsNullOrWhiteSpace(i.Id)))
+                    $"too many items ({itemList.Count}); the limit is {_evaluator.Options.MaxBatchItems} per call. Split the set and make multiple calls.");
+            if (itemList.Any(i => i is null || string.IsNullOrWhiteSpace(i.Id)))
                 throw JevEvaluator.BadArgument("malformed_argument", "every item needs a non-empty 'id' so results can be mapped back.");
-            if (items.Select(i => i.Id).Distinct(StringComparer.Ordinal).Count() != items.Count)
+            if (itemList.Select(i => i.Id).Distinct(StringComparer.Ordinal).Count() != itemList.Count)
                 throw JevEvaluator.BadArgument("malformed_argument", "item ids must be unique within a batch.");
 
-            _evaluator.ValidateQuestionList(questions);
+            _evaluator.ValidateQuestionList(questionList);
 
             var overall = System.Diagnostics.Stopwatch.StartNew();
-            var results = new List<BatchItemResult>(items.Count);
+            var results = new List<BatchItemResult>(itemList.Count);
             var gate = new SemaphoreSlim(Math.Max(1, _evaluator.Options.BatchParallelism));
 
-            var tasks = items.Select(async item =>
+            var tasks = itemList.Select(async item =>
             {
                 await gate.WaitAsync();
                 try
                 {
                     var (text, _) = JevEvaluator.Truncate(item.Content ?? string.Empty, _evaluator.Options.MaxItemCharacters);
-                    var (questionResults, raw, latencyMs) = await _evaluator.EvaluateAsync(text, questions, CancellationToken.None);
+                    var (questionResults, raw, latencyMs) = await _evaluator.EvaluateAsync(text, questionList, CancellationToken.None);
                     return (Model: raw.Model, Result: new BatchItemResult
                     {
                         ItemId = item.Id,
@@ -174,16 +182,25 @@ public sealed class JevMcpTools
         "atomic rewrites you can paste straight back into evaluate. DO NOT USE for questions already known-good; it makes no " +
         "upstream calls and is free.")]
     public Task<string> ValidateQuestionsAsync(
-        [McpParameter(true, "The same question list you would pass to evaluate or evaluate_batch.")]
-        List<McpQuestion> questions)
+        [McpParameter(true, "The same question ARRAY you would pass to evaluate or evaluate_batch.")]
+        JsonElement questions)
     {
-        var results = questions.Select(q => QuestionValidator.Validate(q)).ToList();
-        var response = new ValidateResponse
+        Diag("validate_questions", "questions", questions);
+        try
         {
-            Valid = results.All(r => r.Valid),
-            Results = results,
-        };
-        return Task.FromResult(JsonSerializer.Serialize(response, McpJsonContext.Default.ValidateResponse));
+            var questionList = ParseList<McpQuestion>(questions, "questions");
+            var results = questionList.Select(q => QuestionValidator.Validate(q)).ToList();
+            var response = new ValidateResponse
+            {
+                Valid = results.All(r => r.Valid),
+                Results = results,
+            };
+            return Task.FromResult(JsonSerializer.Serialize(response, McpJsonContext.Default.ValidateResponse));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(SerializeError(ex));
+        }
     }
 
     [McpTool("examples",
@@ -267,6 +284,75 @@ public sealed class JevMcpTools
     }
 
     private static string NewRequestId() => Guid.NewGuid().ToString("N")[..12];
+
+    /// <summary>
+    /// Temporary interop diagnostic: appends the RAW tool arguments (as received after client
+    /// transport and MCPSharp binding) to diag_args.log next to the executable. Lets us see
+    /// exactly what shape a given MCP client puts on the wire. Must never throw.
+    /// </summary>
+    private static void Diag(string toolName, string paramName, JsonElement element)
+    {
+        try
+        {
+            var raw = element.ValueKind == JsonValueKind.Undefined ? "(undefined)" : element.GetRawText();
+            if (raw.Length > 2000)
+                raw = raw[..2000] + "...[truncated]";
+            File.AppendAllText(
+                Path.Combine(AppContext.BaseDirectory, "diag_args.log"),
+                $"{DateTime.UtcNow:O} [{toolName}] {paramName} (kind={element.ValueKind}): {raw}{Environment.NewLine}");
+        }
+        catch
+        {
+            // diagnostics must never break the tool
+        }
+    }
+
+    /// <summary>
+    /// Tolerant list parser for tool arguments. MCP clients disagree on how to pass a list:
+    /// the wire format is a bare JSON array, but some clients/generators wrap it in an object
+    /// envelope (e.g. { "contents": [...] }) per their advertised schema. Accept both, plus
+    /// System.Text.Json's $values ref-preservation shape, an envelope keyed by the parameter
+    /// name itself ({ "questions": [...] } — some clients re-wrap the value under the parameter
+    /// name, or a framework hands the tool the whole arguments object), and a single object as
+    /// a 1-element list.
+    /// Throws <see cref="McpToolException"/> (malformed_argument) when nothing usable arrives.
+    /// </summary>
+    private static List<T> ParseList<T>(JsonElement element, string paramName)
+    {
+        if (element.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            throw JevEvaluator.BadArgument("malformed_argument", $"'{paramName}' is required and must be an array.");
+
+        var target = element;
+        if (target.ValueKind == JsonValueKind.Object &&
+            (target.TryGetProperty("contents", out var inner) || target.TryGetProperty("$values", out inner) ||
+             target.TryGetProperty(paramName, out inner)))
+        {
+            target = inner;
+        }
+
+        List<T>? list;
+        try
+        {
+            list = target.ValueKind switch
+            {
+                JsonValueKind.Array => JsonSerializer.Deserialize<List<T>>(target.GetRawText(),
+                    (JsonTypeInfo<List<T>>)McpJsonContext.Default.GetTypeInfo(typeof(List<T>))!),
+                JsonValueKind.Object => new List<T> { JsonSerializer.Deserialize<T>(target.GetRawText(),
+                    (JsonTypeInfo<T>)McpJsonContext.Default.GetTypeInfo(typeof(T))!)! },
+                _ => null,
+            };
+        }
+        catch (JsonException ex)
+        {
+            throw JevEvaluator.BadArgument("malformed_argument", $"'{paramName}' contains an element that is not a valid {typeof(T).Name}: {ex.Message}");
+        }
+
+        if (list is null)
+            throw JevEvaluator.BadArgument("malformed_argument",
+                $"'{paramName}' must be a JSON array of objects (an object with a 'contents' array is also accepted); got JSON {target.ValueKind}.");
+
+        return list;
+    }
 
     private static string SerializeError(Exception ex) =>
         JsonSerializer.Serialize(new ErrorResponse { Error = ToError(ex) }, McpJsonContext.Default.ErrorResponse);

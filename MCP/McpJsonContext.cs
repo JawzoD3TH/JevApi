@@ -14,6 +14,10 @@ namespace JevMcp;
 [JsonSerializable(typeof(QuestionValidation))]
 [JsonSerializable(typeof(TokenUsage))]
 [JsonSerializable(typeof(McpError))]
+[JsonSerializable(typeof(McpQuestion))]
+[JsonSerializable(typeof(List<McpQuestion>))]
+[JsonSerializable(typeof(BatchItem))]
+[JsonSerializable(typeof(List<BatchItem>))]
 [JsonSerializable(typeof(HealthResponse))]
 internal partial class McpJsonContext : JsonSerializerContext
 {

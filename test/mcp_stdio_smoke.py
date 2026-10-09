@@ -148,6 +148,18 @@ def main():
             fail(f"expected noul valid / choice invalid, got "
                  f"{results[0]['valid']}/{results[1]['valid']}")
 
+    # ---- list-envelope tolerance (interop regression guard) ----
+    # Some MCP clients wrap list arguments in {"contents": [...]} per their advertised schema.
+    # The server must accept both the bare array and the envelope. Keyless: uses validate_questions.
+    print("[check] list argument shapes: bare array AND {contents:[...]} envelope both accepted")
+    v_env = call("validate_questions", {"questions": {"contents": [
+        {"id": "env_ok", "type": "noul", "statement": "The source explicitly states X."},
+    ]}})
+    if v_env and v_env.get("valid"):
+        print("        OK: contents-envelope accepted")
+    else:
+        fail(f"contents-envelope rejected: {v_env}")
+
     # ---- examples ----
     print("[check] examples")
     ex = call("examples", {})
