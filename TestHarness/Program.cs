@@ -90,6 +90,32 @@ using (var doc = JsonDocument.Parse(validateJson))
     }
 }
 
+// ---- list-envelope tolerance (interop regression guard) -------------------
+// Some MCP clients wrap list arguments in {"contents": [...]} per their advertised schema.
+// The server must accept both the bare array and the envelope. Keyless: uses validate_questions.
+Console.WriteLine("[check] list argument shapes: bare array AND {contents:[...]} envelope both accepted");
+var envelopeJson = await Call(client, "validate_questions", new Dictionary<string, object>
+{
+    ["questions"] = new Dictionary<string, object>
+    {
+        ["contents"] = new List<Dictionary<string, object>>
+        {
+            new() { ["id"] = "env_ok", ["type"] = "noul",
+                    ["statement"] = "The source explicitly states X." },
+        }
+    }
+});
+using (var doc = JsonDocument.Parse(envelopeJson))
+{
+    if (doc.RootElement.TryGetProperty("valid", out var valid) && valid.GetBoolean())
+        Console.WriteLine("        OK: contents-envelope accepted");
+    else
+    {
+        Console.WriteLine($"        FAIL: contents-envelope rejected: {envelopeJson}");
+        failures++;
+    }
+}
+
 // ---- examples ------------------------------------------------------------
 Console.WriteLine("[check] examples");
 var examplesJson = await Call(client, "examples", []);
